@@ -1,408 +1,448 @@
-import os
-import subprocess
+import os, sys, datetime
 import re
-import sys
-import json
-import tkinter as tk
-from tkinter import filedialog, simpledialog
-from tkinter import ttk
+import shutil
+import ffmpeg
+import pysrt
+import send2trash
+import colorsys
 
-patt = ""
-src = ""
-target = ""
-delay = None
-cc = 0
-pos = 1
-start = 0
-pos2 = 1
-sort = True
-mx = 60
-ns = []
-vad = ""
-offset = 0
-FFMPEG_PATH = "ffmpeg"
-FFS_PATH = "ffs"
-DIRECTORY = os.getcwd()
-source_files = []
-srt_files = []
-backup_dir = os.path.join(DIRECTORY, "Backup")
-os.makedirs(backup_dir, exist_ok=True)
-typ = "srt"
-search = False
-patt = ''
-directories = [DIRECTORY]
-mode = 0
+alignment_map = {
+    '1': '↙',  # Bottom Left
+    '2': '↓',  # Bottom Center
+    '3': '↘',  # Bottom Right
+    '4': '←',  # Middle Left
+    '5': '↔',  # Middle Center (Centered)
+    '6': '→',  # Middle Right
+    '7': '↖',  # Top Left
+    '8': '↑',  # Top Center
+    '9': '↗',  # Top Right
+}
+patterns = [
+    re.compile(r'{\\an\d}|<\/?[^>]+>'),
+    re.compile(r'\\an(\d+)'), #{.?\\.*?}'), 1
+    re.compile(r'{=\w+}'),
+    re.compile(r"m\s(-?\d+(\.\d+)?)\s(-?\d+(\.\d+)?)"),
+    re.compile(r"{.?\\.*?}"), #4
+    re.compile(r'[\u3040-\u309F\u30A0-\u30FF\u4E00-\u9FFF]'),
+    re.compile(r'>m\s+\d+(?:\.\d+)?\s+\d+(?:\.\d+)?(?:\s+b\s+\d+(?:\.\d+)?){6,}|\{\\an\d\}'),
+    re.compile(r'\{.*?\}'), #7
+    re.compile(r'{=\w+=\w+}'),
+    re.compile(r'(\d{1,4}:\d{1,4}:\d{1,4},\d{1,8})\s*-->\s*(\d{1,4}:\d{1,4}:\d{1,4},\d{1,8})'),
+    re.compile(r'color="#([A-Fa-f0-9]{1,9})"'), #10
+    re.compile(r'#([A-Fa-f0-9]{1,9})'), #11
+    re.compile(r'<[^>]+>'),
+    re.compile(r'\{[^}]*?\}')
+]
+import re
 
-def extract_number(filename, count=True, pattern=None, group_index=None):
-    global patt, pos, pos2, cc, start, ns
-    filename = filename.split("\\")[-1]
-    result = ''
-    if pattern is None:
-        pattern = patt
-    if group_index is None:
-        group_index = pos
-    if patt == "pos" and count:
-        result = cc
+alignment_map = {
+    '1': '↙', # Bottom Left
+    '2': '↓', # Bottom Center
+    '3': '↘', # Bottom Right
+    '4': '←', # Middle Left
+    '5': '↔', # Middle Center (Centered)
+    '6': '→', # Middle Right
+    '7': '↖', # Top Left
+    '8': '↑', # Top Center
+    '9': '↗', # Top Right
+}
+
+def check_arrows(text):
+    arrows = list(alignment_map.values())
+    for arrow in arrows:
+        arrow = '{' + arrow + '}'
+        if re.search(re.escape(arrow), text):
+            return True
+    return False
+def extract(html_string):
+    pattern = patterns[12]
+    outside_tags = re.sub(pattern, '', html_string)
+    return outside_tags.strip()
+def change_color(hex_color):
+    # Remove the hash and convert hex color to RGB
+    hex_color = hex_color.lstrip('#')
+    rgb_color = tuple(int(hex_color[i:i + 2], 16) for i in (0, 2, 4))
+    
+    # Convert RGB to HLS (HSL)
+    # Note: colorsys.rgb_to_hls returns (hue, lightness, saturation)
+    hls_color = colorsys.rgb_to_hls(rgb_color[0] / 255, rgb_color[1] / 255, rgb_color[2] / 255)
+
+    # Check if lightness is below 0.6 (60%)
+    if hls_color[1] < 0.95:
+        # Increase lightness to 0.9
+        hls_color = (hls_color[0], 0.95, hls_color[2])  # Keep hue and saturation unchanged
+        # Convert HLS back to RGB
+        rgb_color = colorsys.hls_to_rgb(*hls_color)
+        # Scale back to 0-255 range
+        rgb_color = tuple(int(c * 255) for c in rgb_color)
+    
+    # Convert RGB back to hex
+    modified_hex_color = '#{:02x}{:02x}{:02x}'.format(*rgb_color)
+    
+    return modified_hex_color
+def extract_hex_color(string):
+    hex_color = re.search(patterns[10], string)
+    if hex_color:
+        h = hex_color.group(0)
+        r = re.search(patterns[11], h)
+        if r:
+            return r.group(0)[1:]
+        else: 
+            return None
     else:
-        if patt == "pos":
-            pattern = r"(\d+)"
-    match = re.findall(pattern, filename)
-    # Find all matches and capture groups
-    if match:
-        print(match, patt, pattern, len(match), filename, end="\n")
-        if not sort:
-            if start < 2:
-                if count:
-                    pos = input("Position (srt 1): ")
-                else:
-                    pos2 = input("Position (mkv 1): ")
-                start += 1
-                if pos != "":
-                    pos = int(pos)
-                if pos == "":
-                    pos = 1
-                if pos2 != "":
-                    pos2 = int(pos2)
-                if pos2 == "":
-                    pos2 = 1
-            try:
-                if count:
-                    result = int(match[pos])
-                else:
-                    result = int(match[pos2])
-            except:
-                result = int(match[0])
+        return None
+def replace_text_color(string):
+    hex_color = extract_hex_color(string)
+    if hex_color:
+        try:
+            modified_hex_color = change_color(hex_color)
+            # print(f' --- #{modified_hex_color}')
+            replaced_string = re.sub(patterns[11], modified_hex_color, string)
+            return replaced_string
+        except ValueError:
+            pass
+    return string
+def calculate_japanese_percentage(file_path):
+    global patterns
+    with open(file_path, 'r', encoding='utf-8') as file:
+        text = file.read()
+
+    japanese_pattern = patterns[5]
+    japanese_chars = re.findall(japanese_pattern, text)
+    print(japanese_chars)
+    total_chars = len(text)
+    japanese_chars_count = len(japanese_chars)
+    if japanese_chars_count <= 0:
+        return False
+
+    japanese_percentage = (japanese_chars_count / total_chars) * 100
+    print(f'{japanese_percentage} - {file}')
+    return japanese_percentage > 5
+
+
+def has_coordinates(subtitle_text):
+    global patterns
+    match = re.search(patterns[3], subtitle_text)
+    match2 = False #re.search(patterns[4], subtitle_text)
+    #print(match, bool(match))
+    return bool(match) or bool(match2)
+def remove_ass_drawings(text):
+    # Regular expression pattern to match the ASS drawing commands and \anX tags
+    global patterns
+
+    # Remove the ASS drawing commands and \anX tags from the text
+    cleaned_text = re.sub(patterns[6], '', text)
+
+    return cleaned_text
+def merge_singleline_subs(subs):
+    merged_subs = []
+    current_sub = None
+
+    for sub in subs:
+        if current_sub is None:
+            current_sub = sub
+        elif current_sub.strip() == sub.strip() and current_sub.end == sub.start:
+            current_sub.end = sub.end
         else:
-            try:
-                result = int(match[1])
-            except:
-                result = 0
-    else:
-        result = 0
-    if filename.find("srt") != -1 and result != '':
-        print(f"{filename}: {result}")
-    if count:
-        cc += 1
-    if not sort:
-        ns.append(result)
-    return result
-def select_source_file():
-    global src
-    src = filedialog.askopenfilename(title="Select Source File")
-    src_entry.delete(0, tk.END)
-    src_entry.insert(0, src)
-def select_target_file():
-    global target
-    target = filedialog.askopenfilename(title="Select Target File")
-    target_entry.delete(0, tk.END)
-    target_entry.insert(0, target)
-def select_dir():
-    global directory
-    directory = filedialog.askdirectory(title="Select Directory")
-    dir_entry.delete(0, tk.END)
-    dir_entry.insert(0, directory)
-def select_source_directory():
-    global src_path
-    src_path = filedialog.askdirectory(title="Select Source Directory")
-    src_entry.delete(0, tk.END)
-    src_entry.insert(0, src_path)
-def select_target_directory():
-    global srt_path
-    srt_path = filedialog.askdirectory(title="Select Target Directory")
-    target_entry.delete(0, tk.END)
-    target_entry.insert(0, srt_path)
-def run_script():
-    global patt, ns, sort, start, vad
-    srt_files = []
-    source_files = []
-    target = target_entry.get()
-    src = src_entry.get()
-    directories[0] = dir_entry.get()
-    offset = int(episode_offset_entry.get())
-    mx = int(max_offset_entry.get())
-    delay = float(delay_entry.get())
-    patt = regex_entry.get()
-    # Define the data to be written
-    data = {
-        "target": target,
-        "src": src,
-        "directory": directories[0],
-        "offset": offset
-    }
-    # Write the data to a file
-    with open('sync.json', 'w') as file:
-        json.dump(data, file, indent=4)
-    # patt = re.escape(patt)
-    print(f"Regular expression pattern: {patt}")
-    for i, directory in enumerate(directories):
-        for file in os.listdir(directory):
-            if os.path.isfile(os.path.join(directory, file)):
-                if target:
-                    target_parts = target.split("/")
-                    target_match = all(
-                        part.lower() in file.lower() for part in target_parts
-                    )
+            merged_subs.append(current_sub)
+            current_sub = sub
 
-                    if (target == "" and file.endswith(typ)) or (
-                        file.endswith(typ) and target_match
-                    ):
-                        srt_files.append(os.path.join(directory, file))
+    if current_sub is not None:
+        merged_subs.append(current_sub)
 
-                src_parts = src.split("/")
-                src_match = all(part.lower() in file.lower() for part in src_parts)
-                if ((search or src == "\\") and file.endswith(".mkv")) or (
-                    not search and file.endswith(typ) and src_match
-                ):
-                    source_files.append(os.path.join(directory, file))
-    source_files = list(set(source_files))
-    srt_files = list(set(srt_files))
-    fn = []
-    """for f in source_files:
-        n = extract_number(f)
-        if(n in fn):
-            source_files.remove(f)
-        else:
-            fn.append(n)
-    for f in srt_files:
-        n = extract_number(f)
-        if(n in fn):
-            srt_files.remove(f)
-        else:
-            fn.append(n)"""
-    if delay is not None and delay != 0:
-        print("Delay.")
-        for file_name in source_files:
-            filename = file_name.split("\\")[-1]
-            dirc = "\\".join(file_name.split("\\")[0:-1])
-            delayed_srt_file = f"{dirc}\\_{filename}_delayed.{typ}"
-            print(f"{dirc}  -  {delayed_srt_file}")
-            # Execute ffmpeg command
-            command = (
-                f'ffmpeg -itsoffset {delay} -i "{file_name}" -c copy "{delayed_srt_file}"'
-            )
-            os.system(command)
-            print(f"Command executed: {command}")
-    srt_files.sort(key=extract_number)
-    source_files.sort(key=extract_number)
-    if patt == "pos":
-        cc = pos
-    c = pos
-    sort = False
-    print(f"{len(srt_files)} + {len(source_files)} {source_files}")
-    for srt_file in srt_files:
-        srt_count = extract_number(srt_file)
-        srt_count += offset
-        # continue
-        print(f"SRT file: {srt_file[-32:]}:  \n ___{srt_count}____")
+    return merged_subs
+def remove_duplicates(text, sep):
+    lines = text.split(sep)
+    unique_lines = []
+    for line in lines:
+        if line not in unique_lines:
+            unique_lines.append(line)
+    cleaned_text = sep.join(unique_lines)
+    return cleaned_text
 
-        for mkv_file in source_files:
-            # if patt == 'pos': mkv_count = c else:
-            mkv_count = extract_number(mkv_file, False)
-            print(mkv_count)
-            if mkv_count == srt_count:
-                mkv_file_path = os.path.join(DIRECTORY, mkv_file)
-                print(f"Matching MKV file found: {mkv_file_path}")
+def convert_to_srt(text):
+    # Remove formatting instructions enclosed in curly braces
+    global patterns
+    cleaned_text = re.sub(patterns[7], '', text)
 
-                mkv_file_path = os.path.join(DIRECTORY, mkv_file)
-                print(f"Running FFS for {mkv_file_path}")
+    # Split the cleaned text into lines
+    lines = cleaned_text.split()
 
-                # Extract the base file name without the extension
-                base_name = os.path.splitext(mkv_file)[0]
-                base_name += f'-{src}.{target}'
+    # Create the SRT content
+    srt_content = ""
+    for i, line in enumerate(lines, start=1):
+        srt_content += f"{i}\n{line}\n\n"
 
-                # Create the subtitle file path based on the original full path
-                subtitle_file_path = os.path.join(DIRECTORY, f"{base_name}.srt")
-                subtitle_file_path.replace("\\", "/")
-                print(
-                    FFS_PATH,
-                    mkv_file_path,
-                    "-i",
-                    srt_file,
-                    "-o",
-                    f"{subtitle_file_path}_sync.srt",
-                    "",
+    return srt_content.strip()
+def replace_alignment(match):
+    try:
+        code = str(match.group(1))
+        if code in alignment_map:
+            return alignment_map[code]
+        return match.group(0)
+    except:
+        return ''
+def clean_srt_file(file_path, log_file, cd):
+    global patterns
+    try:
+        cleaned_subs = []
+        filtered_subs = []
+        if isinstance(log_file, str):
+            log_file = open(log_file, 'w')
+
+        subs = pysrt.open(file_path, encoding='utf-8')
+        lt = ''
+        for sub in subs:
+            t = extract(sub.text)
+            if lt != t and not has_coordinates(sub.text) and not re.search(patterns[8], sub.text):
+                filtered_sub = pysrt.SubRipItem(
+                    index=sub.index,
+                    start=sub.start,
+                    end=sub.end,
+                    text=sub.text
                 )
-                subprocess.run(
-                    [
-                        FFS_PATH,
-                        mkv_file_path,
-                        "-i",
-                        srt_file,
-                        "-o",
-                            f"{subtitle_file_path}-Sync.srt",
-                        "--no-fix-framerate",
-                        f"{vad}--max-offset-seconds={mx}",
-                        "--gss",
-                    ]
-                )
-                break
-        if offset != 0:
-            srt_filename = os.path.basename(srt_file)
-
-            # Check if the file name starts with a number
-            if srt_filename[0].isdigit():
-                # Extract the number from the file name
-                num_match = re.match(r"\d+", srt_filename)
-                if num_match:
-                    old_num = int(num_match.group())
-                    new_num = old_num + offset
-                    new_srt_filename = f"{new_num}:{srt_filename[len(str(old_num))+1:]}"
-                else:
-                    new_srt_filename = f"{srt_count}:{srt_filename}"
+                filtered_subs.append(filtered_sub)
+                lt = t
+        #for i, sub in enumerate(subs):
+        """
+        for sub in cleaned_sub_file:  # Iterate in reverse order to safely delete subtitles
+            if not has_coordinates(sub.text): # and not re.search(patterns[8], sub):
+                filtered_subs.append(sub)
             else:
-                new_srt_filename = f"{srt_count}:{srt_filename}"
+                tims = re.search(patterns[9], filtered_subs[-1])
+                if tims:
+                    if i > 2:
+                        filtered_subs = filtered_subs[:-3]
+                    elif i > 1:
+                        filtered_subs = filtered_subs[:-2]
+"""
+        # Create a new SubRipFile object with the filtered subtitles
+        #cleaned_sub_file = []
+        cleaned_sub_file = pysrt.SubRipFile(filtered_subs)
+        lines = []
+        timings = []
+        add = 0
+        """for i, sub in enumerate(filtered_subs):  # Iterate in reverse order to safely delete subtitles
+            # Delete subs line
+            times = re.search(patterns[9], sub)
+            if times:
+                try:
+                    start_time = times.group(1)
+                    end_time = times.group(2)
+                    if start_time == timings[-1][0] and end_time == timings[-1][1]:
+                        add = 3
+                        if lines[-1].isdigit():
+                            del lines[-1]
+                    timings.append([start_time, end_time])
+                    # Do something with the start_time and end_time
+                    print(f"Subtitle timing: {start_time} --> {end_time}")
+                    cleaned_sub_file.extend(lines)
+                    lines = []
+                except IndexError:
+                    print("Invalid time format in subtitle line:")
+            else:
+                print("No time information found in subtitle line:")"""
+            # sub = re.sub(patterns[0], '', sub)
+            #re.sub(patterns[1], '', sub)
+            #match = re.search(patterns[1], sub)
+        for sub in cleaned_sub_file:  # Iterate in reverse order to safely delete subtitles
+            sub.text = patterns[1].sub(replace_alignment, sub.text)
+            #if match:
+                #sub = convert_to_srt(sub)
+            sub.text = re.sub(patterns[2], '', sub.text)
+            sub.text = replace_text_color(sub.text)
+            """if add > 0:
+                add -= 1
+            else:
+                lines.append(sub)
+        if len(lines) > 0:
+            cleaned_sub_file.extend(lines)"""
+        parent_dir = cd
+        base_name = os.path.basename(file_path)
+        new_file_path = os.path.join(parent_dir, base_name)
+        cleaned_sub_file.save(new_file_path, encoding='utf-8')#with open(new_file_path, 'w', encoding='utf-8') as file:
+            #file.writelines(cleaned_sub_file)
+        # Load the SRT file
+        dup = False
+        subs = pysrt.open(new_file_path, encoding='utf-8')
+        for sub in subs:
+            if not check_arrows(sub.text):
+                sub.text = re.sub(patterns[13], lambda match: match.group()[3:-1] if '**-' in match.group() else '', sub.text)
+        path = os.path.join(parent_dir, base_name.split(".")[0]+"-Clean"+".srt")
+        subs.save(path, encoding="utf-8")
+        subs = cleaned_sub_file
+        unique_lines = set()
+        unique_subs = []
+        log_entry = f'Processed: {file_path}\n'
+        log_entry += f'lines: {unique_lines} {cleaned_subs}\n'
+        log_entry += f'Cleaned file: {new_file_path}\n\n'
+        log_file.write(log_entry)
+        print(log_entry.strip())
+        print(f'Subtitles cleaned successfully. {unique_lines} Cleaned file: {new_file_path}')
+    except Exception as e:
+        log_entry = f'Error occurred while cleaning subtitles in file: {file_path}\n'
+        log_entry += f'Error message: {str(e)}\n\n'
+        log_file.write(log_entry)
+        print(log_entry.strip())
+        print(f'Error occurred while cleaning subtitles in file: {file_path}')
+        print(f'Error message: {str(e)}')
+        exc_type, exc_obj, exc_tb = sys.exc_info()
+        fname = os.path.split(exc_tb.tb_frame.f_code.co_filename)[1]
+        print(exc_type, fname, exc_tb.tb_lineno)
+def main():
+    current_directory = os.getcwd()
+    strings = ['bat', 'C:']
+    my_path = os.getcwd()
+    cb = False
+    script_dir = r"S:\Code\.mkv-subs"
+    if not all(s in current_directory for s in strings):
+        source_files = [
+            f"{script_dir}\\subs.py",
+            f"{script_dir}\\quicksrt=-ass.bat",
+            f"{script_dir}\\subsdelay.bat",
+            f"{script_dir}\\quickdefault.bat",
+        ]
 
-            new_srt_path = os.path.join(os.path.dirname(srt_file), new_srt_filename)
-
-            # Check if the new file already exists
-            if os.path.exists(new_srt_path):
-                print(f"File already exists: {new_srt_path}")
-                # Skip this file and move on to the next one
+        for file_path in source_files:
+            try:
+                subprocess.run(["copy", "/Y", file_path, "."], shell=True)
+            except Exception as e:
+                print(e, file_path)
+    else:
+        current_directory = input("Directory: ")
+        if current_directory != '':
+            my_path = current_directory
+    for ff in os.listdir(my_path):
+        if ff.endswith('.ass'):
+            input_file = os.path.join(my_path, ff)
+            output_file = os.path.join(my_path, ff[:-4] + '.srt')
 
             try:
-                os.rename(srt_file, new_srt_path)
-            except OSError as e:
-                print(f"Error renaming file: {srt_file} -> {new_srt_path}")
-                print(e)
-        else:
-            print(f"Could not extract number from file path: {srt_file}")
-def update_radio():
-    mode = selected_mode.get()
-    if mode == 2:
-        episode_offset_entry.grid_forget()
-        episode_offset_label.grid_forget()
-        delay_label.grid(row=5, column=0, padx=20, pady=20, sticky="e")
-        delay_entry.grid(row=5, column=1, padx=20, pady=20, sticky="ew")
-        #dir_entry.configure(background='black')
-    else:
-        delay_label.grid_forget()
-        delay_label.grid_forget()
-        episode_offset_label.grid(row=5, column=0, padx=20, pady=20, sticky="e")
-        episode_offset_entry.grid(row=5, column=1, padx=20, pady=20, sticky="ew")
+                ffmpeg.input(input_file).output(output_file, y='-y').run()
+                print(f"Converted {ff} to {output_file}")
+                # send2trash.send2trash(input_file)
+            except ffmpeg.Error as e:
+                print(f"Error converting {ff}: {e.stderr}")
+    only_files = [f for f in os.listdir(my_path) if os.path.isfile(os.path.join(my_path, f))]
 
-root = tk.Tk()
-root.title("Subtitle Extractor")
-root.geometry("800x600")
+    log_file_path = os.path.join(my_path, 'srt_log.txt')
+    with open(log_file_path, 'w') as log_file:
+        backup_dir = os.path.join(my_path, 'Srt_Backup')
+        if not os.path.exists(backup_dir):
+            os.makedirs(backup_dir)
 
-# Set the dark theme
-root.configure(bg='#2c2c2c')
-# Create the main frame with a dark theme
-frame = tk.Frame(root, bg='#2c2c2c')
-frame.grid(row=0, column=0, sticky="nsew")
+        for file_name in only_files:
+            typ = 'srt'
+            seconds = 0
+            if len(sys.argv) > 1:
+                seconds = float(sys.argv[1])
+                if len(sys.argv) > 2:
+                    typ = sys.argv[2]
+            else:
+                typ = 'srt'
+                seconds = 0
+            if file_name.lower().endswith(f'.{typ}'):
+                file_path = os.path.join(my_path, file_name)
+                jp = calculate_japanese_percentage(file_path)
+                if not jp and len(sys.argv) == 1:
+                    backup_path = os.path.join(backup_dir, file_name)
+                    if os.path.exists(backup_path):
+                        # Add a number to the file name
+                        base_name, extension = os.path.splitext(backup_path)
+                        counter = 1
+                        while os.path.exists(backup_path):
+                            numbered_file = f"{base_name}_{counter}{extension}"
+                            backup_path = os.path.join(backup_dir, numbered_file)
+                            counter += 1
+                    shutil.move(file_path, backup_path)
+                    print(f'{seconds} .{typ} - Original file moved to backup: {backup_path}')
+                    print("The file meets the English character percentage threshold.")
+                    try:
+                        # Create a backup by moving the original file to the backup directory
 
-# Create the widgets with a dark theme
-regex_label = tk.Label(frame, text="Regex:", fg='white', bg='#2c2c2c', font=("Arial", 16))
-regex_entry = tk.Entry(frame, fg='white', bg='#4c4c4c', font=("Arial", 16))
+                        # Check if 'seconds' argument is provided
+                        # Clean the subtitle file and save the cleaned version with the same name as the original
+                        clean_srt_file(backup_path, log_file, my_path)
+                    except Exception as e:
+                        log_entry = f'Error occurred while processing file: {file_path}\n'
+                        log_entry += f'Error message: {str(e)}\n\n'
+                        log_file.write(log_entry)
+                        print(log_entry.strip())
+                        print(f'Error occurred while processing file: {file_path}')
+                        print(f'Error message: {str(e)}')
+                elif not (seconds == 0 and len(sys.argv) == 1):
+                    print("Delay.")
+                    filename = os.path.splitext(file_name)[0]
+                    delayed_srt_file = f'_{filename}_delayed.{typ}'
+                    # Execute ffmpeg command
+                    command = f'ffmpeg -itsoffset {seconds} -i "{backup_path}" -c copy "{delayed_srt_file}"'
+                    os.system(command)
+                    print(f'Command executed: {command}')
+    print(f'Log file created: {log_file_path}')
+def process(file, dest, dirr):
+    file_path = file
+    backup_dir = os.path.join(dirr, 'Srt_Backup')
+    backup_path = os.path.join(backup_dir, file)
+    if os.path.exists(dest):
+        # Add a number to the file name
+        base_name, extension = os.path.splitext(dest)
+        counter = 1
+        # while os.path.exists(dest):
+        #     numbered_file = f"{base_name}_{counter}{extension}"
+        #     dest = os.path.join(backup_dir, numbered_file)
+        #     counter += 1
+    shutil.move(file_path, dest)
+    log_file_path = os.path.join(dirr, 'srt_log.txt')
+    try:
+        # Create a backup by moving the original file to the backup directory
 
-src_label = tk.Label(frame, text="Source:", fg='white', bg='#2c2c2c', font=("Arial", 16))
-src_entry = tk.Entry(frame, fg='white', bg='#4c4c4c', font=("Arial", 16))
-src_button = tk.Button(frame, text="Browse", command=select_source_file, fg='white', bg='#4c4c4c', font=("Arial", 16))
-src_dir_button = tk.Button(frame, text="Directory", command=select_source_directory, fg='white', bg='#4c4c4c', font=("Arial", 16))
+        # Check if 'seconds' argument is provided
+        # Clean the subtitle file and save the cleaned version with the same name as the original
+        clean_srt_file(dest, log_file_path, dirr)
+    except Exception as e:
+        log_entry = f'Error occurred while processing file: {file_path}\n'
+        log_entry += f'Error message: {str(e)}\n\n'
+        log_file_path.write(log_entry)
+        print(log_entry.strip())
+        print(f'Error occurred while processing file: {file_path}')
+        print(f'Error message: {str(e)}')
 
-target_label = tk.Label(frame, text="Target:", fg='white', bg='#2c2c2c', font=("Arial", 16))
-target_entry = tk.Entry(frame, fg='white', bg='#4c4c4c', font=("Arial", 16))
-target_button = tk.Button(frame, text="Browse", command=select_target_file, fg='white', bg='#4c4c4c', font=("Arial", 16))
-target_dir_button = tk.Button(frame, text="Directory", command=select_target_directory, fg='white', bg='#4c4c4c', font=("Arial", 16))
 
-dir_label = tk.Label(frame, text="Diretory", fg='white', bg='#2c2c2c', font=("Arial", 16))
-dir_entry = tk.Entry(frame, fg='white', bg='#4c4c4c', font=("Arial", 16))
-dir_button = tk.Button(frame, text="Browse", command=select_dir, fg='white', bg='#4c4c4c', font=("Arial", 16))
+if __name__ == '__main__':
+    main()
+"""def main():
+    my_path = os.getcwd()
+    only_files = [f for f in os.listdir(my_path) if os.path.isfile(os.path.join(my_path, f))]
 
-max_offset_label = tk.Label(frame, text="Max Offset (seconds):", fg='white', bg='#2c2c2c', font=("Arial", 16))
-max_offset_entry = tk.Entry(frame, fg='white', bg='#4c4c4c', font=("Arial", 16))
+    log_file_path = os.path.join(my_path, 'srt_log.txt')
+    with open(log_file_path, 'w') as log_file:
+        backup_dir = os.path.join(my_path, 'Srt_Backup')
+        if not os.path.exists(backup_dir):
+            os.makedirs(backup_dir)
 
-episode_offset_label = tk.Label(frame, text="Episode Offset (Target):", fg='white', bg='#2c2c2c', font=("Arial", 16))
-episode_offset_entry = tk.Entry(frame, fg='white', bg='#4c4c4c', font=("Arial", 16))
+        for file_name in only_files:
+            if file_name.lower().endswith('.srt'):
+                file_path = os.path.join(my_path, file_name)
+                backup_path = os.path.join(backup_dir, file_name)
+                if isEnglish(file_path):
+                    print("The file meets the English character percentage threshold.")
+                    try:
+                        # Create a backup by moving the original file to the backup directory
+                        shutil.move(file_path, backup_path)
+                        print(f'Original file moved to backup: {backup_path}')
 
-delay_label = tk.Label(frame, text="Delay:", fg='white', bg='#2c2c2c', font=("Arial", 16))
-delay_entry = tk.Entry(frame, fg='white', bg='#4c4c4c', font=("Arial", 16))
+                        # Clean the subtitle file and save the cleaned version with the same name as the original
+                        clean_srt_file(backup_path, log_file)
+                    except Exception as e:
+                        log_entry = f'Error occurred while processing file: {file_path}\n'
+                        log_entry += f'Error message: {str(e)}\n\n'
+                        log_file.write(log_entry)
+                        print(log_entry.strip())
+                        print(f'Error occurred while processing file: {file_path}')
+                        print(f'Error message: {str(e)}')
+                else:
+                    print("The file does not meet the English character percentage threshold.")
+    print(f'Log file created: {log_file_path}')
 
-run_button = tk.Button(frame, text="Run", command=run_script, fg='white', bg='#4c4c4c', font=("Arial", 16))
-
-# Set the dark theme
-style = tk.ttk.Style()
-style.theme_use('clam')
-
-# Set the font size for the menu
-style.configure("TMenubutton", background="#333", foreground="white", activebackground="#444", activeforeground="white", font=("Arial", 32))
-style.configure("TMenuItem", background="#333", foreground="white", activebackground="#444", activeforeground="white", font=("Arial", 16))
-style.configure("TButton", background="#333", foreground="white", activebackground="#444", activeforeground="white", font=("Arial", 16))
-style.configure("TLabel", background="#333", foreground="white", font=("Arial", 16))
-style.configure("TEntry", background="#444", foreground="white", insertcolor="white", font=("Arial", 16))
-style.configure("TRadiobutton", background="#333", foreground="white", activebackground="#444", activeforeground="white", font=("Arial", 16))
-
-# Create the main menu
-menubar = tk.Menu(root, bg="#333", fg="white", activebackground="#444", activeforeground="white", font=("Arial", 16))
-root.config(menu=menubar)
-
-# File menu
-file_menu = tk.Menu(menubar)
-menubar.add_cascade(label="File", menu=file_menu, font=("Arial", 38))
-file_menu.add_command(label="Select Source File", command=select_source_file, font=("Arial", 16))
-file_menu.add_command(label="Select Target File", command=select_target_file, font=("Arial", 16))
-file_menu.add_command(label="Select Source Directory", command=select_source_directory, font=("Arial", 16))
-file_menu.add_command(label="Select Target Directory", command=select_target_directory, font=("Arial", 16))
-file_menu.add_separator()
-file_menu.add_command(label="Exit", command=root.quit, font=("Arial", 16))
-
-# Options menu
-options_menu = tk.Menu(menubar)
-menubar.add_cascade(label="Options", menu=options_menu, font=("Arial", 38))
-options_menu.add_command(label="Run Script", command=run_script, font=("Arial", 16))
-
-# Variable to hold the selected search mode
-selected_mode = tk.IntVar()
-selected_mode.set(0)  # Set the default selection to 0 (Search Text)
-
-# Create radio buttons for search mode selection
-search_text_radio = tk.Radiobutton(root, text="Search Text", variable=selected_mode, value=0, background="#333", foreground="white", activebackground="#444", activeforeground="white", font=("Arial", 22), command=update_radio)
-search_directories_radio = tk.Radiobutton(root, text="Search Directories", variable=selected_mode, value=1, background="#333", foreground="white", activebackground="#444", activeforeground="white", font=("Arial", 22), command=update_radio)
-delay_mode_radio = tk.Radiobutton(root, text="Delay Mode", variable=selected_mode, value=2, background="#333", foreground="white", activebackground="#444", activeforeground="white", font=("Arial", 22), command=update_radio)
-
-# Grid the widgets
-# Grid the radio buttons with more spacing
-ypos = 520
-search_text_radio.place(x=20, y=ypos)
-search_directories_radio.place(x=240, y=ypos)
-delay_mode_radio.place(x=560, y=ypos)
-
-src_label.grid(row=1, column=0, padx=20, pady=20, sticky="e")
-src_entry.grid(row=1, column=1, padx=20, pady=20, sticky="ew")
-src_button.grid(row=1, column=2, padx=20, pady=20)
-src_dir_button.grid(row=1, column=3, padx=20, pady=20)
-
-target_label.grid(row=2, column=0, padx=20, pady=20, sticky="e")
-target_entry.grid(row=2, column=1, padx=20, pady=20, sticky="ew")
-target_button.grid(row=2, column=2, padx=20, pady=20)
-target_dir_button.grid(row=2, column=3, padx=20, pady=20)
-
-dir_label.grid(row=3, column=0, padx=20, pady=20, sticky="e")
-dir_entry.grid(row=3, column=1, padx=20, pady=20, sticky="ew")
-dir_button.grid(row=3, column=2, padx=20, pady=20)
-
-max_offset_label.grid(row=4, column=0, padx=20, pady=20, sticky="e")
-max_offset_entry.grid(row=4, column=1, padx=20, pady=20, sticky="ew")
-
-episode_offset_label.grid(row=5, column=0, padx=20, pady=20, sticky="e")
-episode_offset_entry.grid(row=5, column=1, padx=20, pady=20, sticky="ew")
-
-# Grid the widgets with more spacing
-regex_label.grid(row=6, column=0, padx=20, pady=20, sticky="e")
-regex_entry.grid(row=6, column=1, columnspan=2, padx=20, pady=20, sticky="ew")
-run_button.grid(row=7, column=1, padx=20, pady=20)
-
-with open('sync.json', 'r') as file:
-    data = json.load(file)
-
-if data:
-    target_entry.insert(0, data['target'])
-    src_entry.insert(0, data['src'])
-    dir_entry.insert(0, data['directory'])
-    episode_offset_entry.insert(0, data['offset'])
-else:
-    episode_offset_entry.insert(0, "0")
-max_offset_entry.insert(0, "60")
-delay_entry.insert(0, "0")
-regex_entry.insert(0, r"(\d+)")
-
-root.mainloop() 
+if __name__ == '__main__':
+    main()"""

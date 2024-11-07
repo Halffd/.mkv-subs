@@ -391,9 +391,12 @@ regex_label.grid(row=6, column=0, padx=20, pady=20, sticky="e")
 regex_entry.grid(row=6, column=1, columnspan=2, padx=20, pady=20, sticky="ew")
 run_button.grid(row=7, column=1, padx=20, pady=20)
 
-with open('sync.json', 'r') as file:
-    data = json.load(file)
-
+data = None
+try:
+    with open('sync.json', 'r') as file:
+        data = json.load(file)
+except Exception as e:
+    print(e)
 if data:
     target_entry.insert(0, data['target'])
     src_entry.insert(0, data['src'])

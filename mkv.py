@@ -95,7 +95,7 @@ for file_name in mkv_files:
             # f.write(str(mkv.__dict__))
             # json.dump(mkvt, f, indent=2)
     # Extract specific track using pymkv
-    # tracks = get_track_ids_by_type(info, 'subtitles')
+    eng = None
     tracks = mkv.get_track()
     print(tracks)
     mg = None
@@ -118,10 +118,11 @@ for file_name in mkv_files:
             tn = f".{tns.lower()}"
         name = f"{file_name[:-4]}.{track}{tn}.{file_type}"
         print(obj.track_type, obj.track_codec, name)
-        eng = obj.language == 'eng' and not "japanese" in tns.lower()
+        if tns is not None:
+            eng = obj.language == 'eng' and not "japanese" in tns.lower()
         if (obj._track_type == 'audio' and (obj.language == 'jpn' or obj.language == 'und')):
             jpn = track
-        if (obj._track_type == 'audio' and eng):
+        if (obj._track_type == 'audio' and (eng or tns is None)):
             mux = True
             #mkv.remove_track(track)
         if (file_type == 'mp3' or file_type == 'wav') and obj._track_type == 'audio' and not eng:
