@@ -4,8 +4,8 @@ REM for %%f in (.mkv) do %mkvmerge% @options.json -o mkvmerge_out%%f %%f
 :start
 set t=ass
 set type=srt
-copy /Y C:\Users\halff\OneDrive\Documents\.scriptbat\subs.bat %CD%\subs.bat
-copy /Y C:\Users\halff\OneDrive\Documents\.scriptbat\subs.py
+copy /Y C:\Users\halff\Documents\.scriptbat\subs.bat %CD%\subs.bat
+copy /Y C:\Users\halff\Documents\.scriptbat\subs.py
 echo ==========
 set i=1
 set fn=0

@@ -3,7 +3,7 @@ REM for %%f in (.mkv) do %mkvmerge% @options.json -o mkvmerge_out%%f %%f
 
 for %%f in (*.mkv) do (
 		echo "%%f"
-		C:\Users\halff\OneDrive\Documents\.bat\mkvinfo.exe "%%f" > info.txt
+		C:\Users\halff\Documents\.bat\mkvinfo.exe "%%f" > info.txt
 		start "D:\Program Files\Sublime Text 3\sublime_text.exe" info.txt
 		goto start
 )
@@ -15,11 +15,11 @@ dir
 for %%f in (*.mkv) do (
 		echo "%%f"
 		if %track% EQU -1 ( 
-			C:\Users\halff\OneDrive\Documents\.bat\mkvinfo.exe "%%f" > info.txt
+			C:\Users\halff\Documents\.bat\mkvinfo.exe "%%f" > info.txt
 			start "D:\Program Files\Sublime Text 3\sublime_text.exe" info.txt
 			goto start
 		) else (
-			C:\Users\halff\OneDrive\Documents\.bat\mkvmerge.exe -o "%%f.mkv" --default-track %track%:yes "%%f"
+			C:\Users\halff\Documents\.bat\mkvmerge.exe -o "%%f.mkv" --default-track %track%:yes "%%f"
 			REM --default-track 4:yes --default-track 3:no --default-track 2:no --default-track 1:no "%%f"
 		)
 )

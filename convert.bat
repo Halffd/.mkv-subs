@@ -13,7 +13,7 @@ for %%a in (*.%t%) do (
 	set fn=%%a
         ffmpeg -i "%CD%\%%a" "%%a.%type%"
 )
-copy /Y C:\Users\halff\OneDrive\Documents\.scriptbat\subs.py %CD%\subs.py
+copy /Y C:\Users\halff\Documents\.scriptbat\subs.py %CD%\subs.py
 py subs.py
 echo ===========
 rem goto start

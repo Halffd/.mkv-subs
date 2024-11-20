@@ -51,8 +51,8 @@ log = "nyes"
 
 strings = ['E:']
 source_files = [
-    "C:\\Users\\halff\\OneDrive\\Documents\\.mkv-subs\\subs.py",
-    "C:\\Users\\halff\\OneDrive\\Documents\\.mkv-subs\\quicksrt=-ass.bat"
+    "C:\\Users\\halff\\Documents\\.mkv-subs\\subs.py",
+    "C:\\Users\\halff\\Documents\\.mkv-subs\\quicksrt=-ass.bat"
 ]
 cb = False
 if all(s in current_directory for s in strings):
@@ -81,6 +81,7 @@ else:
     ass = os.path.join(os.getcwd(), 'ass')
     srts = os.path.join(os.getcwd(), 'srt')
 directory = None
+print(len(mkv_files), mkv_files)
 for file_name in mkv_files:
     file_path = os.path.join(current_directory, file_name)
     print(f'"{file_path}"')
@@ -220,7 +221,7 @@ for file_name in mkv_files:
         if file_type == 'mkv' or mux:
             op = f"{file_path}.2.mkv"
             command = [
-                "C:\\Users\\halff\\OneDrive\\Documents\\.bat\\mkvmerge.exe",
+                "mkvmerge",
                 "-o", op,
                 "--atracks", str(jpn),
                 file_path

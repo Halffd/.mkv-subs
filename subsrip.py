@@ -232,10 +232,10 @@ def main():
     cb = False
     if not all(s in current_directory for s in strings):
         source_files = [
-            "C:\\Users\\halff\\OneDrive\\Documents\\.scriptbat\\subs.py",
-            "C:\\Users\\halff\\OneDrive\\Documents\\.scriptbat\\quicksrt=-ass.bat",
-            "C:\\Users\\halff\\OneDrive\\Documents\\.scriptbat\\subsdelay.bat",
-            "C:\\Users\\halff\\OneDrive\\Documents\\.scriptbat\\quickdefault.bat",
+            "C:\\Users\\halff\\Documents\\.scriptbat\\subs.py",
+            "C:\\Users\\halff\\Documents\\.scriptbat\\quicksrt=-ass.bat",
+            "C:\\Users\\halff\\Documents\\.scriptbat\\subsdelay.bat",
+            "C:\\Users\\halff\\Documents\\.scriptbat\\quickdefault.bat",
         ]
 
         for file_path in source_files:

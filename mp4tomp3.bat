@@ -9,15 +9,15 @@ cd /D %folder%
 dir
 for %%f in (*.avi) do (
 		echo "%%f"
-		C:\Users\halff\OneDrive\Documents\.bat\ffmpeg.exe -i "%%f" "%%f.mp3"
+		C:\Users\halff\Documents\.bat\ffmpeg.exe -i "%%f" "%%f.mp3"
 )
 for %%f in (*.mp4) do (
 		echo "%%f"
-		C:\Users\halff\OneDrive\Documents\.bat\ffmpeg.exe -i "%%f" "%%f.mp3"
+		C:\Users\halff\Documents\.bat\ffmpeg.exe -i "%%f" "%%f.mp3"
 )
 for %%f in (*.m4a) do (
 		echo "%%f"
-		C:\Users\halff\OneDrive\Documents\.bat\ffmpeg.exe -i "%%f" "%%f.mp3"
+		C:\Users\halff\Documents\.bat\ffmpeg.exe -i "%%f" "%%f.mp3"
 )
 for %%f in (*.mkv) do (
 		echo "%%f"
