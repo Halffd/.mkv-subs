@@ -391,14 +391,14 @@ def process(file, dest, dirr):
         #     numbered_file = f"{base_name}_{counter}{extension}"
         #     dest = os.path.join(backup_dir, numbered_file)
         #     counter += 1
-    shutil.move(file_path, dest)
+    #shutil.move(file_path, dest)
     log_file_path = os.path.join(dirr, 'srt_log.txt')
     try:
         # Create a backup by moving the original file to the backup directory
 
         # Check if 'seconds' argument is provided
         # Clean the subtitle file and save the cleaned version with the same name as the original
-        clean_srt_file(dest, log_file_path, dirr)
+        clean_srt_file(file_path, log_file_path, dirr)
     except Exception as e:
         log_entry = f'Error occurred while processing file: {file_path}\n'
         log_entry += f'Error message: {str(e)}\n\n'

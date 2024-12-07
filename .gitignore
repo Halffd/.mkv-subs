@@ -15,6 +15,11 @@ venv
 *.ass
 *.log
 *.pyc
+*.dll
+*.exe
+*.json
+*.out
+*.txt
 media
 __pycache__
 caption/Logs
