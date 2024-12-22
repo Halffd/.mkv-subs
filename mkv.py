@@ -168,7 +168,7 @@ def process_tracks(mkv, file_name, current_directory, ass, srts, file_type, cb):
                 process_subs(res, dest, cb, None, current_directory)
 
         if mux:
-            mux_audio_with_mkvmerge(mkv, jpn)
+            mux_audio_with_mkvmerge(file_name, jpn)
 
 def process_subtitle_track(track, file_name, ass, srts, file_type, current_directory):
     if track.track_codec == 'SubRip/SRT':
@@ -193,6 +193,7 @@ def mux_audio_with_mkvmerge(file_path, jpn):
     command = [
         "mkvmerge", "-o", op, "--atracks", str(jpn), file_path
     ]
+    print(file_path, command, end="\n")
     try:
         result = subprocess.run(command, capture_output=True)
         if result.returncode == 0:
