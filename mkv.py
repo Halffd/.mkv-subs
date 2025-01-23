@@ -52,14 +52,7 @@ def process_subs(file, dest, cb=False, vid=None, dirr=None):
             file = temp_srt  # Use the converted file for processing
         except subprocess.CalledProcessError as e:
             raise RuntimeError(f"Error converting file to .srt: {e}")
-    dirr = os.path.dirname(file)
-    # Process the subtitle file
-    try:
-        subs.process(file, dest, dirr)
-    except Exception as e:
-        raise RuntimeError(f"Error processing subtitles: {e}")
-
-    # Generate a default video path if vid is None
+    dirr = os.path.dirname(file)    # Generate a default video path if vid is None
     if vid_dir is None:
         home = os.path.expanduser('~')  # Get the home directory for both Windows and Linux
         
@@ -83,13 +76,17 @@ def process_subs(file, dest, cb=False, vid=None, dirr=None):
         filename = re.sub(unsupported_path_symbols, '', filename)
         vid_dir = os.path.join(home, 'Documents', 'Subs', filename)  # Set default video path
         mkdir(vid_dir)
-        print(vid_dir)
     if vid is None:
         vid = os.path.join(vid_dir, os.path.basename(file))
+    # Process the subtitle file
+    try:
+        subs.process(file, vid, vid_dir)
+    except Exception as e:
+        raise RuntimeError(f"Error processing subtitles: {e}")
     # If cb is True, copy the processed subtitle file to the video path
     if cb:
         try:
-            shutil.copy(file, vid)
+            shutil.copy(file, vid_dir)
         except Exception as e:
             raise RuntimeError(f"Error copying file to video path: {e}")
 
