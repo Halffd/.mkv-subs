@@ -6,6 +6,7 @@ import re
 import json
 import io
 import pymkv
+from pathlib import Path
 
 vid_dir = None
 def convert_mp3_to_wav(mp3_path, wav_path):
@@ -32,26 +33,29 @@ def mkdir(directory_path):
         print(f"Directory '{directory_path}' is created or already exists.")
     except Exception as e:
         print(f"Error creating directory '{directory_path}': {e}")
+
+# Step 4: Update process_subs() to handle SUP/SRT
 def process_subs(file, dest, cb=False, vid=None, dirr=None):
-    global vid_dir
-    import subs  # Assuming subs.py has a function to process subtitles
-
-    # Validate inputs
-    if not isinstance(file, str) or not os.path.isfile(file):
-        raise ValueError("The 'file' parameter must be a valid file path.")
-    if not isinstance(dest, str):
-        raise ValueError("The 'dest' parameter must be a valid destination path.")
-
-    # Check if the file needs conversion to .srt
+    # Handle SUP files
+    if file.endswith('.sup'):
+        srt_file = os.path.splitext(file)[0] + '.srt'
+        try:
+            # Use SubtitleEdit for OCR conversion
+            subprocess.run([
+                'subtitleedit', '/convert', file, 'subrip',
+                '/output', srt_file
+            ], check=True)
+            file = srt_file  # Use the converted SRT file
+        except subprocess.CalledProcessError as e:
+            raise RuntimeError(f"Failed to convert SUP to SRT: {e}")
+    # Existing code for non-SRT files (now handles ASS only)
     if not file.endswith('.srt'):
-        # Create a temporary SRT filename
         temp_srt = os.path.splitext(file)[0] + '.srt'
         try:
-            # Use FFmpeg to convert the file to SRT
             subprocess.run(['ffmpeg', '-y', '-i', file, temp_srt], check=True)
-            file = temp_srt  # Use the converted file for processing
+            file = temp_srt
         except subprocess.CalledProcessError as e:
-            raise RuntimeError(f"Error converting file to .srt: {e}")
+            raise RuntimeError(f"Error converting to SRT: {e}")
     dirr = os.path.dirname(file)    # Generate a default video path if vid is None
     if vid_dir is None:
         home = os.path.expanduser('~')  # Get the home directory for both Windows and Linux
@@ -130,10 +134,11 @@ def main():
 
     ass = os.path.join(current_directory, 'ass')
     srts = os.path.join(current_directory, 'srt')
-
+    sup_dir = os.path.join(current_directory, 'sup')  # New directory for SUP files
+    
     os.makedirs(ass, exist_ok=True)
     os.makedirs(srts, exist_ok=True)
-
+    os.makedirs(sup_dir, exist_ok=True)  # Create SUP directory
     for file_name in mkv_files:
         file_path = os.path.join(current_directory, file_name)
         mkv = pymkv.MKVFile(file_path)
@@ -167,24 +172,56 @@ def process_tracks(mkv, file_name, current_directory, ass, srts, file_type, cb):
         if mux:
             mux_audio_with_mkvmerge(file_name, jpn)
 
+
+# Step 3: Update process_subtitle_track() to handle PGS
 def process_subtitle_track(track, file_name, ass, srts, file_type, current_directory):
-    if track.track_codec == 'SubRip/SRT':
+    sup_dir = os.path.join(current_directory, 'sup')  # Path to SUP directory
+    
+    # Detect PGS subtitles
+    is_pgs = track.track_codec.lower() in ['hdmv pgs', 's_hdmv/pgs', 'pgs', 'pgs']
+    
+    if is_pgs:
+        # Extract to SUP directory
+        file_type = 'sup'
+        name = f"{file_name[:-4]}.{track.track_id}.{track.language}.{file_type}"
+        res = os.path.join(sup_dir, name)
+    elif track.track_codec == 'SubRip/SRT':
         file_type = 'srt'
+        name = f"{file_name[:-4]}.{track.track_id}.{track.language}.{file_type}"
+        res = os.path.join(srts, name)
     else:
         file_type = 'ass'
-
-    name = f"{file_name[:-4]}.{track.track_id}.{track.language}.{file_type}"
-    res = os.path.join(ass, name)
+        name = f"{file_name[:-4]}.{track.track_id}.{track.language}.{file_type}"
+        res = os.path.join(ass, name)
 
     try:
-        command = ["mkvextract", "tracks", os.path.join(current_directory, file_name), f"{track.track_id}:{res}"]
-        subprocess.run(command, check=True)
+        # Extract the subtitle track
+        subprocess.run([
+            "mkvextract", "tracks", 
+            os.path.join(current_directory, file_name), 
+            f"{track.track_id}:{res}"
+        ], check=True)
         print(f"Extracted track {track.track_id} to {res}")
-        return res  # Return the path of the extracted subtitle
+
+        # Convert SUP to SRT
+        if is_pgs:
+            srt_path = os.path.join(srts, name.replace('.sup', '.srt'))
+            try:
+                # Convert using vobsub2srt
+                subprocess.run(['vobsub2srt', res], check=True)
+                
+                # Move generated SRT to srt directory
+                generated_srt = Path(res).with_suffix('.srt').name
+                shutil.move(generated_srt, srt_path)
+                print(f"Converted {res} to {srt_path}")
+                return srt_path  # Return path to SRT file
+            except (subprocess.CalledProcessError, FileNotFoundError) as e:
+                print(f"Failed to convert SUP to SRT: {e}")
+                return None
+        return res
     except subprocess.CalledProcessError as e:
         print(f"Failed to extract track: {e}")
-        return None  # Return None if extraction failed
-
+        return None
 def mux_audio_with_mkvmerge(file_path, jpn):
     op = f"{file_path}.2.mkv"
     command = [
