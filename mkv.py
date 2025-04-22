@@ -7,6 +7,7 @@ import json
 import io
 import pymkv
 from pathlib import Path
+import subs
 
 vid_dir = None
 def convert_mp3_to_wav(mp3_path, wav_path):
@@ -36,6 +37,7 @@ def mkdir(directory_path):
 
 # Step 4: Update process_subs() to handle SUP/SRT
 def process_subs(file, dest, cb=False, vid=None, dirr=None):
+    global vid_dir
     # Handle SUP files
     if file.endswith('.sup'):
         srt_file = os.path.splitext(file)[0] + '.srt'
@@ -103,8 +105,58 @@ def show_exception_and_exit(exc_type, exc_value, tb):
 
 sys.excepthook = show_exception_and_exit
 
+def check_dependencies():
+    """Check if required dependencies are installed."""
+    missing_deps = []
+    
+    # Check mkvmerge
+    try:
+        subprocess.run(['mkvmerge', '--version'], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    except FileNotFoundError:
+        missing_deps.append('mkvmerge')
+    
+    # Check if libboost is installed (Linux only)
+    if sys.platform.startswith('linux'):
+        try:
+            subprocess.run(['ldconfig', '-p'], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            output = subprocess.check_output(['ldconfig', '-p']).decode()
+            if 'libboost_filesystem.so' not in output:
+                missing_deps.append('libboost-filesystem')
+        except subprocess.CalledProcessError:
+            missing_deps.append('libboost-filesystem')
+    
+    if missing_deps:
+        print("\nMissing dependencies detected:")
+        if 'mkvmerge' in missing_deps:
+            print("\nmkvmerge is not installed. Please install it:")
+            if sys.platform.startswith('linux'):
+                print("  Ubuntu/Debian: sudo apt-get install mkvtoolnix")
+                print("  Arch Linux: sudo pacman -S mkvtoolnix")
+            elif sys.platform == 'darwin':
+                print("  macOS: brew install mkvtoolnix")
+            else:
+                print("  Download from: https://mkvtoolnix.download/")
+                
+        if 'libboost-filesystem' in missing_deps:
+            print("\nlibboost-filesystem is not installed. Please install it:")
+            print("  Ubuntu/Debian: sudo apt-get install libboost-filesystem")
+            print("  Arch Linux: sudo pacman -S boost-libs")
+        
+        sys.exit(1)
+
 def main():
-    current_directory = os.getcwd()
+    # Add dependency check at the start
+    check_dependencies()
+    
+    # Parse command line arguments
+    if len(sys.argv) > 1:
+        if sys.argv[1] == '-1':
+            current_directory = input("Directory: ")
+        else:
+            current_directory = sys.argv[1]
+    else:
+        current_directory = os.getcwd()
+    
     file_type = "ass"
     log_to_json = True
 
@@ -127,7 +179,6 @@ def main():
             except Exception as e:
                 print(e, file_path)
     else:
-        current_directory = input("Directory: ")
         file_type = input("File type: ") or 'ass'
 
     mkv_files = [f for f in os.listdir(current_directory) if f.endswith(".mkv")]
