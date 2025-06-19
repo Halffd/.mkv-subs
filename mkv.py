@@ -221,7 +221,8 @@ def process_tracks(mkv, file_name, current_directory, ass, srts, file_type, cb):
                 process_subs(res, dest, cb, None, current_directory)
 
         if mux:
-            mux_audio_with_mkvmerge(file_name, jpn)
+            full_path = os.path.join(current_directory, file_name)
+            mux_audio_with_mkvmerge(full_path, jpn)
 
 
 # Step 3: Update process_subtitle_track() to handle PGS
@@ -273,20 +274,31 @@ def process_subtitle_track(track, file_name, ass, srts, file_type, current_direc
     except subprocess.CalledProcessError as e:
         print(f"Failed to extract track: {e}")
         return None
-def mux_audio_with_mkvmerge(file_path, jpn):
-    op = f"{file_path}.2.mkv"
+def mux_audio_with_mkvmerge(file_path, jpn_track_id):
+    filename = f"{os.path.basename(file_path)}.2.mkv"
+    output_path = os.path.join(os.path.dirname(file_path), filename)
+    eng_track_id = jpn_track_id - 1 if jpn_track_id == 1 else jpn_track_id + 1
     command = [
-        "mkvmerge", "-o", op, "--atracks", str(jpn), file_path
+        "mkvmerge", "-o", output_path,
+        "--audio-tracks", str(jpn_track_id),
+        "--default-track-flag", f"{jpn_track_id}:yes",
+        "--default-track-flag", f"{eng_track_id}:no",
+        file_path
     ]
-    print(file_path, command, end="\n")
+
+    print("Running:", ' '.join(command))
+    print("CWD:", os.getcwd())
+    print("File exists:", os.path.isfile(file_path))
     try:
         result = subprocess.run(command, capture_output=True)
         if result.returncode == 0:
             os.remove(file_path)
-            os.rename(op, file_path)
+            os.rename(output_path, file_path)
             print("Successfully muxed audio.")
         else:
-            print(f"Failed to mux audio: {result.stderr.decode()}")
+            print("Failed to mux audio.")
+            print("STDERR:", result.stderr.decode())
+            print("STDOUT:", result.stdout.decode())
     except subprocess.CalledProcessError as e:
         print(f"Error during muxing: {e}")
 
