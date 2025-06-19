@@ -201,29 +201,38 @@ def main():
                 json.dump([track.__dict__ for track in mkv.tracks], log, indent=2)
 
         process_tracks(mkv, file_name, current_directory, ass, srts, file_type, cb)
-
 def process_tracks(mkv, file_name, current_directory, ass, srts, file_type, cb):
     jpn = None
     mux = False
-
+    
+    # FIRST: Extract all subtitle tracks BEFORE any muxing
+    subtitle_results = []
+    for track in mkv.tracks:
+        if track.track_type == 'subtitles' and file_type not in ['mp3', 'mkv']:
+            res = process_subtitle_track(track, file_name, ass, srts, file_type, current_directory)
+            if res:
+                subtitle_results.append((res, track))
+    
+    # SECOND: Process audio track detection
     for track in mkv.tracks:
         if track.track_type == 'audio':
             if track.language in ['jpn', 'und']:
                 jpn = track.track_id
             elif track.language == 'eng':
                 mux = True
-        
-        if track.track_type == 'subtitles' and file_type not in ['mp3', 'mkv']:
-            res = process_subtitle_track(track, file_name, ass, srts, file_type, current_directory)
-            if res:
-                # Call process_subs after extracting the subtitle
-                dest = os.path.join(srts, f"{file_name[:-4]}.{track.track_id}.{track.language}.srt")
-                process_subs(res, dest, cb, None, current_directory)
-
-        if mux:
-            full_path = os.path.join(current_directory, file_name)
-            mux_audio_with_mkvmerge(full_path, jpn)
-
+    
+    # THIRD: Do the audio muxing (this modifies the file)
+    if mux and jpn is not None:
+        full_path = os.path.join(current_directory, file_name)
+        mux_audio_with_mkvmerge(full_path, jpn)
+    
+    # FOURTH: Process the extracted subtitles (file is now modified)
+    for res, track in subtitle_results:
+        if file_type == 'srt':
+            dest = os.path.join(srts, f"{file_name[:-4]}.{track.track_id}.{track.language}.srt")
+        else:
+            dest = res
+        process_subs(res, dest, cb, None, current_directory)
 
 # Step 3: Update process_subtitle_track() to handle PGS
 def process_subtitle_track(track, file_name, ass, srts, file_type, current_directory):
