@@ -84,6 +84,14 @@ def process_subs(file, dest, cb=False, vid=None, dirr=None):
         mkdir(vid_dir)
     if vid is None:
         vid = os.path.join(vid_dir, os.path.basename(file))
+    # Get the directory of the input file and copy single ASS file with same base name
+    file_dir = os.path.dirname(file)
+    base_name = os.path.splitext(os.path.basename(file))[0] + '.ass'
+    src_ass = os.path.join(file_dir, base_name)
+    if os.path.exists(src_ass):
+        os.makedirs(os.path.join(vid_dir, 'ass'), exist_ok=True)
+        dst_ass = os.path.join(vid_dir, 'ass', base_name)
+        shutil.copy2(src_ass, dst_ass)
     # Process the subtitle file
     try:
         subs.process(file, vid, vid_dir)
