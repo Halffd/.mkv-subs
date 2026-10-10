@@ -10,6 +10,7 @@ from pathlib import Path
 import subs
 
 vid_dir = None
+vid_current_directory = None
 def convert_mp3_to_wav(mp3_path, wav_path):
     try:
         command = [
@@ -37,7 +38,7 @@ def mkdir(directory_path):
 
 # Step 4: Update process_subs() to handle SUP/SRT
 def process_subs(file, dest, cb=False, vid=None, dirr=None):
-    global vid_dir
+    global vid_dir, vid_current_directory
     # Handle SUP files
     if file.endswith('.sup'):
         srt_file = os.path.splitext(file)[0] + '.srt'
@@ -61,14 +62,14 @@ def process_subs(file, dest, cb=False, vid=None, dirr=None):
     dirr = os.path.dirname(file)    # Generate a default video path if vid is None
     if vid_dir is None:
         home = os.path.expanduser('~')  # Get the home directory for both Windows and Linux
-        
+
         # Get the directory name containing the file
         file_dir = os.path.dirname(file)  # Get the directory path
         directory_name = os.path.basename(file_dir)  # Extract the last part of the path
         if directory_name == 'ass' or directory_name == 'srt':
             file_dir = os.path.dirname(file_dir)  # Get the directory path
             directory_name = os.path.basename(file_dir)  # Extract the last part of the path
-            
+
         # Get the parent directory
         parent_dir = os.path.dirname(file_dir)
         parent_directory_name = os.path.basename(parent_dir)
@@ -100,7 +101,7 @@ def process_subs(file, dest, cb=False, vid=None, dirr=None):
     # If cb is True, copy the processed subtitle file to the video path
     if cb:
         try:
-            shutil.copy(file, vid_dir)
+            shutil.copy(file, vid_current_directory)
         except Exception as e:
             raise RuntimeError(f"Error copying file to video path: {e}")
 
@@ -116,13 +117,13 @@ sys.excepthook = show_exception_and_exit
 def check_dependencies():
     """Check if required dependencies are installed."""
     missing_deps = []
-    
+
     # Check mkvmerge
     try:
         subprocess.run(['mkvmerge', '--version'], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     except FileNotFoundError:
         missing_deps.append('mkvmerge')
-    
+
     # Check if libboost is installed (Linux only)
     if sys.platform.startswith('linux'):
         try:
@@ -132,7 +133,7 @@ def check_dependencies():
                 missing_deps.append('libboost-filesystem')
         except subprocess.CalledProcessError:
             missing_deps.append('libboost-filesystem')
-    
+
     if missing_deps:
         print("\nMissing dependencies detected:")
         if 'mkvmerge' in missing_deps:
@@ -144,57 +145,59 @@ def check_dependencies():
                 print("  macOS: brew install mkvtoolnix")
             else:
                 print("  Download from: https://mkvtoolnix.download/")
-                
+
         if 'libboost-filesystem' in missing_deps:
             print("\nlibboost-filesystem is not installed. Please install it:")
             print("  Ubuntu/Debian: sudo apt-get install libboost-filesystem")
             print("  Arch Linux: sudo pacman -S boost-libs")
-        
+
         sys.exit(1)
 
 def main():
     # Add dependency check at the start
     check_dependencies()
-    
+
     # Parse command line arguments
-    if len(sys.argv) > 1:
-        if sys.argv[1] == '-1':
-            current_directory = input("Directory: ")
-        else:
-            current_directory = sys.argv[1]
-    else:
-        current_directory = os.getcwd()
-    
     file_type = "ass"
+    current_directory = os.getcwd()
     log_to_json = True
+    remux = False
+    cb = True
+    if len(sys.argv) > 1:
+        import argparse
+        parser = argparse.ArgumentParser()
+        #positional arguments
+        parser.add_argument('directory', help='Directory to process')
+        parser.add_argument('-c', '--copy', help='Directory to process')
+        parser.add_argument('-t', '--type', help='File type')
+        parser.add_argument('-d', '--dir', help='Directory to process')
+        parser.add_argument('-l', '--log', help='Log to JSON')
+        parser.add_argument('-v', '--verbose', help='Verbose output')
+        parser.add_argument('-q', '--quiet', help='Quiet output')
+        parser.add_argument('-s', '--source', help='Source directory')
+        parser.add_argument('-o', '--output', help='Output directory')
+        parser.add_argument('-r', '--remux', help='Remux audio')
+        args = parser.parse_args()
+        file_type = args.type or "ass"
+        current_directory = args.directory or os.getcwd()
+        log_to_json = args.log or True
+        remux = args.remux or False
+        cb = args.copy or True
 
     # Handle platform-specific paths
-    source_files = [
-        os.path.join("C:", "Users", "halff", "Documents", ".mkv-subs", "subs.py"),
-        os.path.join("C:", "Users", "halff", "Documents", ".mkv-subs", "quicksrt=-ass.bat")
-    ]
-
-    cb = True
+    source_files = []
+    vid_current_directory = current_directory
     # Check if the script is executed in the same directory as the script or one above
     script_dir = os.path.dirname(os.path.abspath(__file__))
-    if current_directory == script_dir or current_directory == os.path.dirname(script_dir):
-        cb = False
-
-    if any(s in current_directory for s in ['E:']):
-        for file_path in source_files:
-            try:
-                shutil.copy(file_path, ".")
-            except Exception as e:
-                print(e, file_path)
-    else:
-        file_type = input("File type: ") or 'ass'
+    # if current_directory == script_dir or current_directory == os.path.dirname(script_dir):
+    #    cb = False
 
     mkv_files = [f for f in os.listdir(current_directory) if f.endswith(".mkv")]
 
     ass = os.path.join(current_directory, 'ass')
     srts = os.path.join(current_directory, 'srt')
     sup_dir = os.path.join(current_directory, 'sup')  # New directory for SUP files
-    
+
     os.makedirs(ass, exist_ok=True)
     os.makedirs(srts, exist_ok=True)
     os.makedirs(sup_dir, exist_ok=True)  # Create SUP directory
@@ -209,10 +212,17 @@ def main():
                 json.dump([track.__dict__ for track in mkv.tracks], log, indent=2)
 
         process_tracks(mkv, file_name, current_directory, ass, srts, file_type, cb)
+    for file in os.listdir(ass):
+        if file.endswith('.srt'):
+            shutil.copy(os.path.join(ass, file), os.path.join(current_directory, file))
+        elif file.endswith('.ass'):
+            shutil.copy(os.path.join(ass, file), os.path.join(current_directory, file))
+        elif file.endswith('.sup'):
+            shutil.copy(os.path.join(sup_dir, file), os.path.join(current_directory, file))
 def process_tracks(mkv, file_name, current_directory, ass, srts, file_type, cb):
     jpn = None
     mux = False
-    
+
     # FIRST: Extract all subtitle tracks BEFORE any muxing
     subtitle_results = []
     for track in mkv.tracks:
@@ -220,7 +230,7 @@ def process_tracks(mkv, file_name, current_directory, ass, srts, file_type, cb):
             res = process_subtitle_track(track, file_name, ass, srts, file_type, current_directory)
             if res:
                 subtitle_results.append((res, track))
-    
+
     # SECOND: Process audio track detection
     for track in mkv.tracks:
         if track.track_type == 'audio':
@@ -228,12 +238,12 @@ def process_tracks(mkv, file_name, current_directory, ass, srts, file_type, cb):
                 jpn = track.track_id
             elif track.language == 'eng':
                 mux = True
-    
+
     # THIRD: Do the audio muxing (this modifies the file)
     if mux and jpn is not None:
         full_path = os.path.join(current_directory, file_name)
         mux_audio_with_mkvmerge(full_path, jpn)
-    
+
     # FOURTH: Process the extracted subtitles (file is now modified)
     for res, track in subtitle_results:
         if file_type == 'srt':
@@ -245,10 +255,10 @@ def process_tracks(mkv, file_name, current_directory, ass, srts, file_type, cb):
 # Step 3: Update process_subtitle_track() to handle PGS
 def process_subtitle_track(track, file_name, ass, srts, file_type, current_directory):
     sup_dir = os.path.join(current_directory, 'sup')  # Path to SUP directory
-    
+
     # Detect PGS subtitles
     is_pgs = track.track_codec.lower() in ['hdmv pgs', 's_hdmv/pgs', 'pgs', 'pgs']
-    
+
     if is_pgs:
         # Extract to SUP directory
         file_type = 'sup'
@@ -266,8 +276,8 @@ def process_subtitle_track(track, file_name, ass, srts, file_type, current_direc
     try:
         # Extract the subtitle track
         subprocess.run([
-            "mkvextract", "tracks", 
-            os.path.join(current_directory, file_name), 
+            "mkvextract", "tracks",
+            os.path.join(current_directory, file_name),
             f"{track.track_id}:{res}"
         ], check=True)
         print(f"Extracted track {track.track_id} to {res}")
@@ -278,7 +288,7 @@ def process_subtitle_track(track, file_name, ass, srts, file_type, current_direc
             try:
                 # Convert using vobsub2srt
                 subprocess.run(['vobsub2srt', res], check=True)
-                
+
                 # Move generated SRT to srt directory
                 generated_srt = Path(res).with_suffix('.srt').name
                 shutil.move(generated_srt, srt_path)

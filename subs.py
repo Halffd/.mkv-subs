@@ -3,7 +3,7 @@
 import os, sys, datetime
 import re
 import shutil
-import ffmpeg
+import subprocess
 import pysrt
 import send2trash
 import colorsys
@@ -35,19 +35,6 @@ patterns = [
     re.compile(r'<[^>]+>'),
     re.compile(r'\{[^}]*?\}')
 ]
-import re
-
-alignment_map = {
-    '1': '↙', # Bottom Left
-    '2': '↓', # Bottom Center
-    '3': '↘', # Bottom Right
-    '4': '←', # Middle Left
-    '5': '↔', # Middle Center (Centered)
-    '6': '→', # Middle Right
-    '7': '↖', # Top Left
-    '8': '↑', # Top Center
-    '9': '↗', # Top Right
-}
 
 def check_arrows(text):
     arrows = list(alignment_map.values())
@@ -307,7 +294,11 @@ def main():
 
         for file_path in source_files:
             try:
-                subprocess.run(["copy", "/Y", file_path, "."], shell=True)
+                # Use platform-appropriate copy command
+                if os.name == 'nt':  # Windows
+                    subprocess.run(["copy", "/Y", file_path, "."], shell=True)
+                else:  # Unix/Linux/MacOS
+                    subprocess.run(["cp", "-f", file_path, "."])
             except Exception as e:
                 print(e, file_path)
     else:
@@ -320,11 +311,11 @@ def main():
             output_file = os.path.join(my_path, ff[:-4] + '.srt')
 
             try:
-                ffmpeg.input(input_file).output(output_file, y='-y').run()
+                subprocess.run(['ffmpeg', '-i', input_file, '-y', output_file], check=True)
                 print(f"Converted {ff} to {output_file}")
                 # send2trash.send2trash(input_file)
-            except ffmpeg.Error as e:
-                print(f"Error converting {ff}: {e.stderr}")
+            except subprocess.CalledProcessError as e:
+                print(f"Error converting {ff}: {e}")
     only_files = [f for f in os.listdir(my_path) if os.path.isfile(os.path.join(my_path, f))]
 
     log_file_path = os.path.join(my_path, 'srt_log.txt')
